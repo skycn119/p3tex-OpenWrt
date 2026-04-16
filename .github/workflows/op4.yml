@@ -76,6 +76,7 @@ jobs:
       run: |
         cd openwrt
         echo "开始编译所有软件包（生成 apk）..."
+        make tools/install -j$(nproc)
         make package/compile -j$(nproc) || make package/compile -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
