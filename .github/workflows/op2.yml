@@ -90,6 +90,7 @@ jobs:
       - name: Check and fix all package versions for APK compatibility
         run: |
           # 遍历所有包的 Makefile
+          cd openwrt
           for makefile in $(find feeds/ -name Makefile -path "*/applications/*" -o -path "*/packages/*"); do
             echo "Checking $makefile"
             
