@@ -81,7 +81,7 @@ jobs:
           fi
           echo "Start Makefile: $MAKEFILE"
           sed -i 's/PKG_VERSION:=.*/PKG_VERSION:=3.11.9/' "$MAKEFILE"
-          sed -i 's/PKG_HASH:=.*/PKG_HASH:=9B1E896523FC510691126C864406D9360A3D1E986ACBDA59CDA57B5ABDA45B87/' "$MAKEFILE"
+          sed -i 's/PKG_HASH:=.*/PKG_HASH:=9b1e896523fc510691126c864406d9360a3d1e986acbda59cda57b5abda45b87/' "$MAKEFILE"
           cat "$MAKEFILE" | grep -E "PKG_VERSION|PKG_HASH"  # 验证修改
 
       - name: Load custom configuration
