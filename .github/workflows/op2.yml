@@ -70,6 +70,20 @@ jobs:
       - name: Install feeds
         run: cd openwrt && ./scripts/feeds install -a
 
+      - name: Bump Python version using find
+        run: |
+          cd openwrt
+          # 查找正确的 Makefile 并修改
+          MAKEFILE=$(find feeds -type f -name "Makefile" -path "*/python3/*" | head -1)
+          if [ -z "$MAKEFILE" ]; then
+            echo "Makefile not found"
+            exit 1
+          fi
+          echo "Found Makefile: $MAKEFILE"
+          sed -i 's/PKG_VERSION:=.*/PKG_VERSION:=3.11.9/' "$MAKEFILE"
+          sed -i 's/PKG_HASH:=.*/PKG_HASH:=9B1E896523FC510691126C864406D9360A3D1E986ACBDA59CDA57B5ABDA45B87/' "$MAKEFILE"
+          cat "$MAKEFILE" | grep -E "PKG_VERSION|PKG_HASH"  # 验证修改
+
       - name: Load custom configuration
         run: |
           [ -e files ] && mv files openwrt/files
@@ -91,8 +105,6 @@ jobs:
         run: |
           # 遍历所有包的 Makefile
           cd openwrt
-          sed -i 's/PKG_VERSION:=3.3/PKG_VERSION:=3.11.9/' feeds/packages/lang/python3/Makefile
-          sed -i 's/PKG_HASH:=.*/PKG_HASH:=9B1E896523FC510691126C864406D9360A3D1E986ACBDA59CDA57B5ABDA45B87/' feeds/packages/lang/python3/Makefile
           for makefile in $(find feeds/ -name Makefile -path "*/applications/*" -o -path "*/packages/*"); do
             echo "Checking $makefile"
             
