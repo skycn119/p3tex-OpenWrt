@@ -1,0 +1,28 @@
+--- a/pppd/Makefile.am
++++ b/pppd/Makefile.am
+@@ -64,6 +64,7 @@ noinst_HEADERS = \
+ 	peap.h \
+ 	pppd-private.h \
+ 	spinlock.h \
++	syncppp.h \
+ 	tls.h \
+ 	tdb.h
+ 
+@@ -82,6 +83,7 @@ pppd_SOURCES = \
+ 	main.c \
+ 	options.c \
+ 	session.c \
++	syncppp.c \
+ 	tty.c \
+ 	upap.c \
+ 	utils.c
+@@ -92,8 +94,8 @@ BUILT_SOURCE =
+ 
+ pppd_CPPFLAGS = -DSYSCONFDIR=\"${sysconfdir}\" -DPPPD_RUNTIME_DIR='"@PPPD_RUNTIME_DIR@"' -DPPPD_LOGFILE_DIR='"@PPPD_LOGFILE_DIR@"'
+-pppd_LDFLAGS =
+-pppd_LIBS =
++pppd_LDFLAGS = -pthread
++pppd_LIBS = -lpthread
+ 
+ if PPP_WITH_SYSTEM_CA_PATH
+ pppd_CPPFLAGS += -DSYSTEM_CA_PATH='"@SYSTEM_CA_PATH@"'
