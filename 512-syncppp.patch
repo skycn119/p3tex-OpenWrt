@@ -16,13 +16,13 @@
  	tty.c \
  	upap.c \
  	utils.c
-@@ -95,7 +97,8 @@ BUILT_SOURCE =
+@@ -95,8 +97,8 @@ BUILT_SOURCE =
  
  pppd_CPPFLAGS = -DSYSCONFDIR=\"${sysconfdir}\" -DPPPD_RUNTIME_DIR='"@PPPD_RUNTIME_DIR@"' -DPPPD_LOGFILE_DIR='"@PPPD_LOGFILE_DIR@"'
 -pppd_LDFLAGS =
 -pppd_LIBS =
 +pppd_LDFLAGS = -pthread
-+pppd_LDADD = $(PTHREAD_LIBS)
++pppd_LIBS = -lpthread
  
  if PPP_WITH_SYSTEM_CA_PATH
  pppd_CPPFLAGS += -DSYSTEM_CA_PATH='"@SYSTEM_CA_PATH@"'
@@ -56,7 +56,6 @@
 +
  	output(0, response, PPP_HDRLEN + len);
  }
- 
 --- a/pppd/options.c
 +++ b/pppd/options.c
 @@ -136,6 +136,7 @@ bool	show_options;		/* print all support
