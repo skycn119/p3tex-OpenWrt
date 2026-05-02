@@ -82,8 +82,8 @@ jobs:
         run: |
          mkdir -p openwrt/package/network/services/ppp/patches        
          # 复制两个补丁文件
-         cp patches/513-syncppp-src.patch openwrt/package/network/services/ppp/patches/
-         cp patches/514-syncppp-build.patch openwrt/package/network/services/ppp/patches/        
+         cp 513-syncppp-src.patch openwrt/package/network/services/ppp/patches/
+         cp 514-syncppp-build.patch openwrt/package/network/services/ppp/patches/        
          echo "✅ Patches added successfully."
         
       - name: Clean before build
