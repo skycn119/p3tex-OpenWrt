@@ -81,7 +81,7 @@ jobs:
       - name: Copy syncppp patch
         run: |
           mkdir -p openwrt/package/network/services/ppp/patches
-          cp patches/512-syncppp.patch openwrt/package/network/services/ppp/patches/    
+          cp 512-syncppp.patch openwrt/package/network/services/ppp/patches/    
           
       - name: Download package
         id: package
