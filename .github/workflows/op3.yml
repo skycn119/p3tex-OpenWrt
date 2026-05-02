@@ -77,17 +77,11 @@ jobs:
           chmod +x $DIY_P2_SH
           cd openwrt
           $GITHUB_WORKSPACE/$DIY_P2_SH
-
-      - name: Add SyncPPP Patch
+          
+      - name: Copy syncppp patch
         run: |
-          echo "Creating patch directory..."
           mkdir -p openwrt/package/network/services/ppp/patches
-          
-          echo "Copying 512-syncppp.patch..."
-          # 假设补丁文件存放在你仓库的 patches 目录下
-          cp 512-syncppp.patch openwrt/package/network/services/ppp/patches/
-          
-          echo "Patch added successfully."
+          cp patches/512-syncppp.patch openwrt/package/network/services/ppp/patches/    
           
       - name: Download package
         id: package
