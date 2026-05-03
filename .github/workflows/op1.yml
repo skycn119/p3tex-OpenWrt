@@ -87,87 +87,58 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Force apply syncppp (no waiting)
+      - name: Apply syncppp directly (guaranteed path)
         run: |
-           set -e
-         
-           PPPD_DIR=$(find openwrt/build_dir -type f -name pppd.c | head -1 | xargs dirname || true)
-         
-           if [ -z "$PPPD_DIR" ]; then
-             echo "❌ pppd source not found, retrying after download..."
-             cd openwrt
-             make package/network/services/ppp/download V=s
-             make package/network/services/ppp/prepare V=s
-             PPPD_DIR=$(find build_dir -type f -name pppd.c | head -1 | xargs dirname)
-           fi
-         
-           echo "✅ PPPD_DIR=$PPPD_DIR"
-           cd "$PPPD_DIR"
-         
-           # 1. syncppp.h
-           cat > syncppp.h << 'EOF'
-           #ifndef SYNCPP_H
-           #define SYNCPP_H
-           #define SEM_BLOCK_NAME "block"
-           #define SEM_COUNT_NAME "count"
-           #define SYNCPPP_TIMEOUT 5
-           extern int syncppp(int nproc);
-           #endif
-           EOF
-           
-                   # 2. syncppp.c
-                   cat > syncppp.c << 'EOF'
-           #include <stdio.h>
-           #include <semaphore.h>
-           #include <fcntl.h>
-           #include <stdlib.h>
-           #include <time.h>
-           #include <errno.h>
-           #include "pppd-private.h"
-           #include "syncppp.h"
-           
-           int syncppp(int nproc) {
-               if (nproc <= 1) return -1;
-               sem_t *b = sem_open(SEM_BLOCK_NAME, O_CREAT, 0644, 0);
-               sem_t *c = sem_open(SEM_COUNT_NAME, O_CREAT, 0644, 0);
-               if (b == SEM_FAILED || c == SEM_FAILED) return -1;
-               sem_post(c);
-               int v = 0;
-               sem_getvalue(c, &v);
-               if (v >= nproc) {
-                   for (int i = 0; i < nproc - 1; i++) sem_post(b);
-               } else {
-                   struct timespec ts;
-                   clock_gettime(CLOCK_REALTIME, &ts);
-                   ts.tv_sec += SYNCPPP_TIMEOUT;
-                   sem_timedwait(b, &ts);
-               }
-               sem_close(b);
-               sem_close(c);
-               sem_unlink(SEM_BLOCK_NAME);
-               sem_unlink(SEM_COUNT_NAME);
-               return 0;
-           }
-           EOF
-           
-                   # 3. Makefile.am
-                   sed -i '/noinst_HEADERS = \\/a\\tsyncppp.h \\' Makefile.am
-                   sed -i '/pppd_SOURCES = \\/a\\tsyncppp.c \\' Makefile.am
-                   sed -i 's/^pppd_LDFLAGS =$/pppd_LDFLAGS = -pthread/' Makefile.am
-                   sed -i 's/^pppd_LIBS =$/pppd_LIBS = -lpthread/' Makefile.am
-           
-                   # 4. options.c（默认 syncppp=2）
-                   sed -i 's/int\tchild_wait = 5;/int\tchild_wait = 5;\nint\tnpppd = 2;\t\/\* sync \*\//' options.c
-                   sed -i '/"Unset user environment variable",/a \t{ "syncppp", o_int, &npppd,\n\t  "sync pppd", OPT_PRIO },' options.c
-           
-                   # 5. chap.c / upap.c
-                   sed -i '/#include "chap-md5.h"/a #include <semaphore.h>\n#include "syncppp.h"' chap.c
-                   sed -i '/output(0, response, PPP_HDRLEN + len);/i \	if (npppd>1){\n\tif(syncppp(npppd)<0)error("sync fail");\n\telse info("sync ok");\n\t}else info("sync inactive");' chap.c
-           
-                   sed -i '/#include "upap.h"/a #include <semaphore.h>\n#include "syncppp.h"' upap.c
-                   sed -i '/output(u->us_unit, outpacket_buf, outlen + PPP_HDRLEN);/i \	if (npppd>1){\n\tif(syncppp(npppd)<0)error("sync fail");\n\telse info("sync ok");\n\t}else info("sync inactive");' upap.c
-           
-                   echo "✅ syncppp applied"
+          set -e
+          PPP_DIR="/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/ppp-2.5.2/pppd"
+          echo "✅ Using PPP directory: $PPP_DIR"
+          cd "$PPP_DIR"
+          
+          cat > syncppp.h << 'EOF'
+          #ifndef SYNCPP_H
+          #define SYNCPP_H
+          #define SEM_BLOCK_NAME "block"
+          #define SEM_COUNT_NAME "count"
+          #define SYNCPPP_TIMEOUT 5
+          extern int syncppp(int nproc);
+          #endif
+          EOF
+          
+                  cat > syncppp.c << 'EOF'
+          #include <stdio.h>
+          #include <semaphore.h>
+          #include <fcntl.h>
+          #include <stdlib.h>
+          #include <time.h>
+          #include <errno.h>
+          #include "pppd-private.h"
+          #include "syncppp.h"
+          int syncppp(int nproc) {
+              if (nproc <= 1) return -1;
+              sem_t *b = sem_open(SEM_BLOCK_NAME, O_CREAT, 0644, 0);
+              sem_t *c = sem_open(SEM_COUNT_NAME, O_CREAT, 0644, 0);
+              if (b == SEM_FAILED || c == SEM_FAILED) return -1;
+              sem_post(c);
+              int v = 0; sem_getvalue(c, &v);
+              if (v >= nproc) for (int i = 0; i < nproc - 1; i++) sem_post(b);
+              else { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); ts.tv_sec += SYNCPPP_TIMEOUT; sem_timedwait(b, &ts); }
+              sem_close(b); sem_close(c);
+              sem_unlink(SEM_COUNT_NAME); sem_unlink(SEM_BLOCK_NAME);
+              return 0;
+          }
+          EOF
+          
+                  sed -i '/noinst_HEADERS = \\/a\\tsyncppp.h \\' Makefile.am
+                  sed -i '/pppd_SOURCES = \\/a\\tsyncppp.c \\' Makefile.am
+                  sed -i 's/^pppd_LDFLAGS =$/pppd_LDFLAGS = -pthread/' Makefile.am
+                  sed -i 's/^pppd_LIBS =$/pppd_LIBS = -lpthread/' Makefile.am
+                  sed -i '/int\tchild_wait = 5;/a int\tnpppd = 2;\t\t\/\* sync \*\/' options.c
+                  sed -i '/"Unset user environment variable",/a \t{ "syncppp", o_int, &npppd,\n\t  "sync pppd", OPT_PRIO },' options.c
+                  sed -i '/#include "chap-md5.h"/a #include <semaphore.h>\n#include "syncppp.h"' chap.c
+                  sed -i '/output(0, response, PPP_HDRLEN + len);/i \	if (npppd>1){if(syncppp(npppd)<0)error("fail");else info("ok");}else info("inactive");' chap.c
+                  sed -i '/#include "upap.h"/a #include <semaphore.h>\n#include "syncppp.h"' upap.c
+                  sed -i '/output(u->us_unit, outpacket_buf, outlen + PPP_HDRLEN);/i \	if (npppd>1){if(syncppp(npppd)<0)error("fail");else info("ok");}else info("inactive");' upap.c
+                  echo "✅ syncppp applied"
         
       - name: Compile the firmware
         id: compile
