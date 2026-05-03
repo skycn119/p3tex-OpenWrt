@@ -87,7 +87,7 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Apply syncppp modification (Direct Path)
+      - name: Apply syncppp (Using confirmed path)
         run: |
           set -e
           
@@ -96,10 +96,11 @@ jobs:
           
           echo "✅ Using confirmed PPP directory: $PPP_DIR"
           
+          # 检查目录是否存在
           if [ ! -d "$PPP_DIR" ]; then
-            echo "❌ Directory not found: $PPP_DIR"
+            echo "❌ ERROR: Directory not found: $PPP_DIR"
             echo "Listing parent directory:"
-            ls -la "/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/"
+            ls -la "/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/" || echo "Parent directory not found"
             exit 1
           fi
           
@@ -133,20 +134,41 @@ jobs:
           #include "syncppp.h"
           
           int syncppp(int nproc) {
-              if (nproc <= 1) { error("syncppp: npppd must be > 1"); return -1; }
+              if (nproc <= 1) {
+                  error("syncppp: npppd must be > 1");
+                  return -1;
+              }
+              
               sem_t *block = sem_open(SEM_BLOCK_NAME, O_CREAT, 0644, 0);
               sem_t *count = sem_open(SEM_COUNT_NAME, O_CREAT, 0644, 0);
-              if (block == SEM_FAILED || count == SEM_FAILED) { error("syncppp: sem_open failed"); return -1; }
-              sem_post(count);
-              int val = 0; sem_getvalue(count, &val);
-              info("%d pppd arrived, waiting for %d", val, nproc - val);
-              if (val >= nproc) { for (int i = 1; i < nproc; i++) sem_post(block); }
-              else {
-                  struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); ts.tv_sec += SYNCPPP_TIMEOUT;
-                  if (sem_timedwait(block, &ts) < 0) { error("syncppp: timeout"); return -1; }
+              if (block == SEM_FAILED || count == SEM_FAILED) {
+                  error("syncppp: sem_open failed");
+                  return -1;
               }
-              sem_close(block); sem_close(count);
-              sem_unlink(SEM_COUNT_NAME); sem_unlink(SEM_BLOCK_NAME);
+              
+              sem_post(count);
+              int val = 0;
+              sem_getvalue(count, &val);
+              info("%d pppd arrived, waiting for %d", val, nproc - val);
+              
+              if (val >= nproc) {
+                  for (int i = 1; i < nproc; i++) {
+                      sem_post(block);
+                  }
+              } else {
+                  struct timespec ts;
+                  clock_gettime(CLOCK_REALTIME, &ts);
+                  ts.tv_sec += SYNCPPP_TIMEOUT;
+                  if (sem_timedwait(block, &ts) < 0) {
+                      error("syncppp: timeout");
+                      return -1;
+                  }
+              }
+              
+              sem_close(block);
+              sem_close(count);
+              sem_unlink(SEM_COUNT_NAME);
+              sem_unlink(SEM_BLOCK_NAME);
               return 0;
           }
           EOF
