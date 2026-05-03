@@ -87,16 +87,18 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Apply syncppp directly (fixed path)
+      - name: Apply syncppp directly (bulletproof)
         run: |
           set -e
-          PPP_DIR="/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/ppp-2.5.2/pppd"
-          echo "✅ Using PPP directory: $PPP_DIR"
-          if [ ! -d "$PPP_DIR" ]; then
-            echo "❌ Directory not found. Listing parent:"
-            ls -la "/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/"
+          PPP_BASE="/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621"
+          PPP_SRC=$(find "$PPP_BASE" -type d -name "ppp-2.5.2" 2>/dev/null | head -1)
+          if [ -z "$PPP_SRC" ]; then
+            echo "❌ PPP source not found"
+            find /workdir/openwrt/build_dir -type d -name "*ppp*" | head -10
             exit 1
           fi
+          PPP_DIR="$PPP_SRC/pppd"
+          echo "✅ Found PPP at: $PPP_DIR"
           cd "$PPP_DIR"
           
           cat > syncppp.h << 'EOF'
