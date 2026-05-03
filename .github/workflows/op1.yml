@@ -76,22 +76,8 @@ jobs:
           [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
           chmod +x $DIY_P2_SH
           cd openwrt
-          $GITHUB_WORKSPACE/$DIY_P2_SH
-          
-      - name: Add syncppp patches
-        run: |
-         mkdir -p openwrt/package/network/services/ppp/patches        
-         # 复制两个补丁文件
-         cp 513-syncppp-src.patch openwrt/package/network/services/ppp/patches/
-         cp 514-syncppp-build.patch openwrt/package/network/services/ppp/patches/
-         cp 515-ppp-sh-syncppp-default.patch openwrt/package/network/services/ppp/patches/
-         echo "✅ Patches added successfully."
-        
-      - name: Clean before build
-        run: |
-         rm -rf openwrt/build_dir/target-*/ppp-*
-         echo "✅ Cleaned old build files."   
-          
+          $GITHUB_WORKSPACE/$DIY_P2_SH    
+
       - name: Download package
         id: package
         run: |
@@ -100,23 +86,80 @@ jobs:
           make download -j8
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
-          
-      - name: Verify patch format
-        run: |
-         echo "=== Checking patch file size ==="
-         ls -lh openwrt/package/network/services/ppp/patches/        
-         echo "=== Validating patch format ==="
-         cd openwrt
-         for patch in package/network/services/ppp/patches/*.patch; do
-          echo "Checking $patch"
-          patch --dry-run -p1 < "$patch" || echo "Warning: $patch may have issues"
-         done
 
-      - name: Skip shadowsocks-libev hash check
+      - name: Apply syncppp directly
         run: |
-          cd openwrt/feeds/helloworld/shadowsocks-libev
-          sed -i 's/PKG_HASH:=.*/PKG_HASH:=skip/' Makefile
-          echo "✅ Skipped shadowsocks-libev hash verification"
+              # 等待源码解压
+              sleep 30
+              
+              # 找到 PPP 目录
+              PPP_DIR=$(find openwrt/build_dir -type d -name "ppp-2.5.2" | head -1)
+              cd "$PPP_DIR/pppd"
+              
+              # 1. 创建头文件
+              echo '#define SEM_BLOCK_NAME "block"' > syncppp.h
+              echo '#define SEM_COUNT_NAME "count"' >> syncppp.h
+              echo '#define SYNCPPP_TIMEOUT 5' >> syncppp.h
+              echo 'extern int syncppp(int nproc);' >> syncppp.h
+              
+              # 2. 创建源文件（简化版）
+              cat > syncppp.c << 'EOF'
+              #include <stdio.h>
+              #include <semaphore.h>
+              #include <fcntl.h>
+              #include <stdlib.h>
+              #include <time.h>
+              #include <errno.h>
+              #include "pppd-private.h"
+              #include "syncppp.h"
+              
+              int syncppp(int nproc) {
+                  if (nproc <= 1) return -1;
+                  
+                  sem_t *block = sem_open(SEM_BLOCK_NAME, O_CREAT, 0644, 0);
+                  sem_t *count = sem_open(SEM_COUNT_NAME, O_CREAT, 0644, 0);
+                  if (block == SEM_FAILED || count == SEM_FAILED) return -1;
+                  
+                  sem_post(count);
+                  int value = 0;
+                  sem_getvalue(count, &value);
+                  
+                  if (value >= nproc) {
+                      for (int i = 0; i < nproc-1; i++) sem_post(block);
+                  } else {
+                      struct timespec ts;
+                      clock_gettime(CLOCK_REALTIME, &ts);
+                      ts.tv_sec += SYNCPPP_TIMEOUT;
+                      sem_timedwait(block, &ts);
+                  }
+                  
+                  sem_close(count);
+                  sem_close(block);
+                  sem_unlink(SEM_COUNT_NAME);
+                  sem_unlink(SEM_BLOCK_NAME);
+                  return 0;
+              }
+              EOF
+                      
+                      # 3. 修改 Makefile.am（简单粗暴）
+                      sed -i 's/noinst_HEADERS = \\/noinst_HEADERS = syncppp.h \\/' Makefile.am
+                      sed -i 's/pppd_SOURCES = \\/pppd_SOURCES = syncppp.c \\/' Makefile.am
+                      sed -i 's/^pppd_LDFLAGS =$/pppd_LDFLAGS = -pthread/' Makefile.am
+                      sed -i 's/^pppd_LIBS =$/pppd_LIBS = -lpthread/' Makefile.am
+                      
+                      # 4. 修改 options.c（设置默认值 2）
+                      sed -i 's/int\tchild_wait = 5;/int\tchild_wait = 5;\nint\tnpppd = 2;\t\/\* synchronize between multiple pppd \*\//' options.c
+                      sed -i '/"Unset user environment variable",/a \t{ "syncppp", o_int, &npppd,\n\t  "sync among multiple pppd when sending chap/pap respond", OPT_PRIO },' options.c
+                      
+                      # 5. 修改 chap.c
+                      sed -i '/#include "chap-md5.h"/a #include <semaphore.h>\n#include "syncppp.h"' chap.c
+                      sed -i '/output(0, response, PPP_HDRLEN + len);/i \	if (npppd > 1) {\n\t\tif (syncppp(npppd) < 0) {\n\t\t\terror("syncppp sync fail");\n\t\t\tsem_unlink(SEM_COUNT_NAME);\n\t\t\tsem_unlink(SEM_BLOCK_NAME);\n\t\t} else {\n\t\t\tinfo("syncppp sync succeeded");\n\t\t}\n\t} else {\n\t\tinfo("syncppp not active");\n\t}' chap.c
+                      
+                      # 6. 修改 upap.c
+                      sed -i '/#include "upap.h"/a #include <semaphore.h>\n#include "syncppp.h"' upap.c
+                      sed -i '/output(u->us_unit, outpacket_buf, outlen + PPP_HDRLEN);/i \	if (npppd > 1) {\n\t\tif (syncppp(npppd) < 0) {\n\t\t\terror("syncppp sync fail");\n\t\t\tsem_unlink(SEM_COUNT_NAME);\n\t\t\tsem_unlink(SEM_BLOCK_NAME);\n\t\t} else {\n\t\t\tinfo("syncppp sync succeeded");\n\t\t}\n\t} else {\n\t\tinfo("syncppp not active");\n\t}' upap.c
+                      
+                      echo "✅ Direct modifications completed"
         
       - name: Compile the firmware
         id: compile
