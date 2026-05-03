@@ -1,0 +1,18 @@
+--- a/files/ppp.sh
++++ b/files/ppp.sh
+@@ -1,6 +1,7 @@
+ #!/bin/sh
+ . /lib/netifd/netifd-proto.sh
+ 
++# Default syncppp value
+ proto_ppp_setup() {
+     local config="$1"
+     json_get_vars ip6table demand keepalive keepalive_adaptive username password pppd_options syncppp
+@@ -8,6 +9,8 @@ proto_ppp_setup() {
+     [ -n "$demand" ] && echo "demand $demand" >> /etc/ppp/options
+     [ -n "$keepalive" ] && echo "lcp-echo-interval $keepalive" >> /etc/ppp/options
++    [ -n "$syncppp" ] || syncppp=2
++    [ -n "$syncppp" ] && echo "syncppp $syncppp" >> /etc/ppp/options
+     [ -n "$keepalive_adaptive" ] && echo "lcp-echo-adaptive" >> /etc/ppp/options
+     [ -n "$ip6table" ] && echo "ipv6-up ipv6-up $ip6table" >> /etc/ppp/options
+     proto_run_command "$config" pppd "$@"
