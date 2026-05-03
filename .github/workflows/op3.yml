@@ -201,7 +201,7 @@ jobs:
                   fi
           
                   echo "✅ syncppp applied successfully"
-        
+      
       - name: Compile the firmware
         id: compile
         run: |
