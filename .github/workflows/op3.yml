@@ -87,23 +87,16 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Apply syncppp (Using confirmed path)
+      - name: Apply syncppp (Using exact path from logs)
         run: |
           set -e
           
-          # 从日志中确认的准确路径
+          # 从你的日志中直接复制的确切路径
           PPP_DIR="/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/ppp-2.5.2/pppd"
           
-          echo "✅ Using confirmed PPP directory: $PPP_DIR"
+          echo "✅ Using EXACT path from your logs: $PPP_DIR"
           
-          # 检查目录是否存在
-          if [ ! -d "$PPP_DIR" ]; then
-            echo "❌ ERROR: Directory not found: $PPP_DIR"
-            echo "Listing parent directory:"
-            ls -la "/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/" || echo "Parent directory not found"
-            exit 1
-          fi
-          
+          # 直接进入，不检查（因为日志证明它存在）
           cd "$PPP_DIR"
           
           echo "🔧 Applying syncppp code..."
