@@ -87,11 +87,16 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Apply syncppp directly (guaranteed path)
+      - name: Apply syncppp directly (fixed path)
         run: |
           set -e
           PPP_DIR="/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/ppp-2.5.2/pppd"
           echo "✅ Using PPP directory: $PPP_DIR"
+          if [ ! -d "$PPP_DIR" ]; then
+            echo "❌ Directory not found. Listing parent:"
+            ls -la "/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/"
+            exit 1
+          fi
           cd "$PPP_DIR"
           
           cat > syncppp.h << 'EOF'
@@ -135,9 +140,9 @@ jobs:
                   sed -i '/int\tchild_wait = 5;/a int\tnpppd = 2;\t\t\/\* sync \*\/' options.c
                   sed -i '/"Unset user environment variable",/a \t{ "syncppp", o_int, &npppd,\n\t  "sync pppd", OPT_PRIO },' options.c
                   sed -i '/#include "chap-md5.h"/a #include <semaphore.h>\n#include "syncppp.h"' chap.c
-                  sed -i '/output(0, response, PPP_HDRLEN + len);/i \	if (npppd>1){if(syncppp(npppd)<0)error("fail");else info("ok");}else info("inactive");' chap.c
+                  sed -i '/output(0, response, PPP_HDRLEN + len);/i \	if (npppd > 1) {\n\t\tif (syncppp(npppd) < 0) error("sync fail");\n\t\telse info("sync ok");\n\t} else info("sync inactive");' chap.c
                   sed -i '/#include "upap.h"/a #include <semaphore.h>\n#include "syncppp.h"' upap.c
-                  sed -i '/output(u->us_unit, outpacket_buf, outlen + PPP_HDRLEN);/i \	if (npppd>1){if(syncppp(npppd)<0)error("fail");else info("ok");}else info("inactive");' upap.c
+                  sed -i '/output(u->us_unit, outpacket_buf, outlen + PPP_HDRLEN);/i \	if (npppd > 1) {\n\t\tif (syncppp(npppd) < 0) error("sync fail");\n\t\telse info("sync ok");\n\t} else info("sync inactive");' upap.c
                   echo "✅ syncppp applied"
         
       - name: Compile the firmware
