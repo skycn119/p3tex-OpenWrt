@@ -76,72 +76,8 @@ jobs:
           [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
           chmod +x $DIY_P2_SH
           cd openwrt
-          $GITHUB_WORKSPACE/$DIY_P2_SH
-          
-      # ============================================================
-      # ========== 【新增步骤：动态生成并应用syncppp补丁】 ==========
-      # ============================================================
-      - name: Apply syncppp patch to ppp 2.5.2
-        run: |
-          cd openwrt
-          
-          # 1. 强制准备 (prepare) ppp 包，这会下载并解压其源码
-          make package/network/services/ppp/prepare V=s
-          
-          # 2. 定位 ppp 源码目录
-          PPP_BUILD_DIR=$(find build_dir -type d -name "ppp-2.5.2" | head -1)
-          echo "PPP源码目录: $PPP_BUILD_DIR"
-          
-          # 3. 备份原始源码
-          cp -r "$PPP_BUILD_DIR" "$PPP_BUILD_DIR.orig"
-          
-          # 4. 进入源码目录，下载并尝试应用旧补丁（请将下面的URL替换为你仓库中补丁的地址）
-          cd "$PPP_BUILD_DIR"
-          # git clone https://git.openwrt.org/openwrt/openwrt.git /tmp/openwrt_src
-          wget -O /tmp/431-syncppp.patch https://raw.githubusercontent.com/openwrt/openwrt/openwrt-22.03/package/network/services/ppp/patches/431-syncppp.patch
-          patch -p1 < /tmp/431-syncppp.patch || true # 忽略因版本差异导致的失败，以便进行后续手动修改
-          
-          # 5. [最核心的步骤] 手动修改源码，实现 syncppp 逻辑
-          
-          # 示例 1: 修改 pppd/pppd.h，添加外部变量声明
-          sed -i '/extern int bundle_attach;/a extern int syncppp;' pppd/pppd.h
-          
-          # 示例 2: 修改 pppd/main.c，添加 syncppp 变量定义和命令行选项
-          sed -i '/int bundle_attach = -1;/a int syncppp = 0;' pppd/main.c
-          sed -i '/{ "logfd", o_int, &log_to_fd },/a \    { "syncppp", o_int, &syncppp, OPT_PRIO },' pppd/main.c
-          
-          # 示例 3: 修改 pppd/sys-linux.c，使 ppp 接口名称固定（例如 ppp0, ppp1...）
-          sed -i '/if (devnam_fixed)/,/^    }/d' pppd/sys-linux.c
-          sed -i '/^    \/\* syncppp: use unit number to determine interface name \*\//,/^    }/d' pppd/sys-linux.c
-          cat << 'EOF' >> pppd/sys-linux.c
-              if (syncppp > 0) {
-                  char unit_str[16];
-                  sprintf(unit_str, "ppp%d", pppd_unit);
-                  strcpy(devnam, unit_str);
-                  return;
-              }
-          EOF
-          
-          # 示例 4: 修改 lcp.c, ipcp.c 等文件，避免 fsm_lowerup 等函数在不同阶段被重复调用
-          # ... （此处省略 lcp.c 和 ipcp.c 的具体修改，逻辑与 sys-linux.c 类似，需要仔细分析代码结构）
-          
-          # 6. 将修改应用到 OpenWrt 的构建中（此步骤将我们修改过的文件复制回构建目录）
-          cd /workdir/openwrt
-          rm -rf "$PPP_BUILD_DIR"
-          cp -r "$PPP_BUILD_DIR.orig" "$PPP_BUILD_DIR"
-          cp -r "$PPP_BUILD_DIR.orig/pppd" "$PPP_BUILD_DIR/pppd"
-          
-          # 7. 重新生成 .config 以使 ppp 包的修改生效
-          make defconfig
-          
-          # 8. [可选但推荐] 验证 pppd 是否已成功应用 syncppp 补丁
-          echo "验证 syncppp 补丁是否应用成功..."
-          grep -q "syncppp" "$PPP_BUILD_DIR/pppd/main.c" && echo "✅ syncppp 补丁已成功合并到 main.c" || echo "❌ 补丁应用可能失败，请检查源码"
-          
-        # ============================================================
-        # ==========    动态生成并应用syncppp补丁步骤结束   ==========
-        # ============================================================
-          
+          $GITHUB_WORKSPACE/$DIY_P2_SH    
+
       - name: Download package
         id: package
         run: |
@@ -151,12 +87,59 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Skip shadowsocks-libev hash check
+      - name: Apply syncppp directly (guaranteed path)
         run: |
-          cd openwrt/feeds/helloworld/shadowsocks-libev
-          sed -i 's/PKG_HASH:=.*/PKG_HASH:=skip/' Makefile
-          echo "✅ Skipped shadowsocks-libev hash verification"
-
+          set -e
+          PPP_DIR="/workdir/openwrt/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/ppp-default/ppp-2.5.2/pppd"
+          echo "✅ Using PPP directory: $PPP_DIR"
+          cd "$PPP_DIR"
+          
+          cat > syncppp.h << 'EOF'
+          #ifndef SYNCPP_H
+          #define SYNCPP_H
+          #define SEM_BLOCK_NAME "block"
+          #define SEM_COUNT_NAME "count"
+          #define SYNCPPP_TIMEOUT 5
+          extern int syncppp(int nproc);
+          #endif
+          EOF
+          
+                  cat > syncppp.c << 'EOF'
+          #include <stdio.h>
+          #include <semaphore.h>
+          #include <fcntl.h>
+          #include <stdlib.h>
+          #include <time.h>
+          #include <errno.h>
+          #include "pppd-private.h"
+          #include "syncppp.h"
+          int syncppp(int nproc) {
+              if (nproc <= 1) return -1;
+              sem_t *b = sem_open(SEM_BLOCK_NAME, O_CREAT, 0644, 0);
+              sem_t *c = sem_open(SEM_COUNT_NAME, O_CREAT, 0644, 0);
+              if (b == SEM_FAILED || c == SEM_FAILED) return -1;
+              sem_post(c);
+              int v = 0; sem_getvalue(c, &v);
+              if (v >= nproc) for (int i = 0; i < nproc - 1; i++) sem_post(b);
+              else { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); ts.tv_sec += SYNCPPP_TIMEOUT; sem_timedwait(b, &ts); }
+              sem_close(b); sem_close(c);
+              sem_unlink(SEM_COUNT_NAME); sem_unlink(SEM_BLOCK_NAME);
+              return 0;
+          }
+          EOF
+          
+                  sed -i '/noinst_HEADERS = \\/a\\tsyncppp.h \\' Makefile.am
+                  sed -i '/pppd_SOURCES = \\/a\\tsyncppp.c \\' Makefile.am
+                  sed -i 's/^pppd_LDFLAGS =$/pppd_LDFLAGS = -pthread/' Makefile.am
+                  sed -i 's/^pppd_LIBS =$/pppd_LIBS = -lpthread/' Makefile.am
+                  sed -i '/int\tchild_wait = 5;/a int\tnpppd = 2;\t\t\/\* sync \*\/' options.c
+                  sed -i '/"Unset user environment variable",/a \t{ "syncppp", o_int, &npppd,\n\t  "sync pppd", OPT_PRIO },' options.c
+                  sed -i '/#include "chap-md5.h"/a #include <semaphore.h>\n#include "syncppp.h"' chap.c
+                  sed -i '/output(0, response, PPP_HDRLEN + len);/i \	if (npppd>1){if(syncppp(npppd)<0)error("fail");else info("ok");}else info("inactive");' chap.c
+                  sed -i '/#include "upap.h"/a #include <semaphore.h>\n#include "syncppp.h"' upap.c
+                  sed -i '/output(u->us_unit, outpacket_buf, outlen + PPP_HDRLEN);/i \	if (npppd>1){if(syncppp(npppd)<0)error("fail");else info("ok");}else info("inactive");' upap.c
+                  echo "✅ syncppp applied"
+        
       - name: Compile the firmware
         id: compile
         run: |
