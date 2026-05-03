@@ -87,36 +87,43 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Apply syncppp (Find path first)
+      - name: Ensure PPP source exists and apply syncppp
         run: |
-          set -e # 任何错误立即退出
-          
-          echo "🔍 Step 1: Ensuring PPP source is ready..."
+          set -e
           cd openwrt
-          # 强制下载并准备源码（确保目录存在）
+        
+          echo "🔍 Step 1: Force download and prepare PPP..."
           make package/network/services/ppp/download V=s
           make package/network/services/ppp/prepare V=s
-          
-          echo "🔍 Step 2: Finding exact PPP directory..."
-          # 方法：寻找 pppd.c 文件，这是最准的
-          PPPD_FILE=$(find /workdir/openwrt/build_dir -name pppd.c -type f | head -1)
-          
+        
+          echo "🔍 Step 2: Waiting for source files to appear..."
+          # 给系统一点时间完成解压（关键步骤）
+          sleep 15
+        
+          echo "🔍 Step 3: Dynamically find pppd.c..."
+          # 从 build_dir 根开始找，不假设任何目录结构
+          PPPD_FILE=$(find build_dir -name pppd.c -type f 2>/dev/null | head -1)
+        
           if [ -z "$PPPD_FILE" ]; then
-            echo "❌ ERROR: pppd.c not found!"
-            echo "Listing build_dir contents:"
-            ls -la /workdir/openwrt/build_dir/
+            echo "❌ ERROR: pppd.c still not found!"
+            echo "Listing build_dir structure:"
+            ls -la build_dir/
+            echo "Listing target directory:"
+            ls -la build_dir/target-mipsel_24kc_musl/ 2>/dev/null || echo "Target dir empty"
+            echo "Searching deeper for any ppp related files:"
+            find build_dir -type f -name "*ppp*" | head -20
             exit 1
           fi
-          
-          # 获取 pppd 目录
+        
+          echo "✅ Found pppd.c at: $PPPD_FILE"
           PPP_DIR=$(dirname "$PPPD_FILE")
-          echo "✅ Found PPP directory: $PPP_DIR"
-          
+          echo "✅ Using PPP directory: $PPP_DIR"
+        
           cd "$PPP_DIR"
-          
-          echo "🔧 Step 3: Applying syncppp code..."
-          
-          # 1. Header file
+        
+          echo "🔧 Step 4: Applying syncppp code..."
+        
+          # 1. Header
           cat > syncppp.h << 'EOF'
           #ifndef SYNCPP_H
           #define SYNCPP_H
@@ -127,7 +134,7 @@ jobs:
           #endif
           EOF
           
-                  # 2. Source file (Clean and simple)
+                  # 2. Source (Robust version)
                   cat > syncppp.c << 'EOF'
           #include <stdio.h>
           #include <semaphore.h>
@@ -157,50 +164,41 @@ jobs:
           }
           EOF
           
-                  # 3. Modify Makefile.am
-                  echo "🔧 Modifying Makefile.am..."
-                  # Add header
+                  # 3. Makefile.am
                   if ! grep -q "syncppp.h" Makefile.am; then
                     sed -i '/noinst_HEADERS = \\/a\\tsyncppp.h \\' Makefile.am
                   fi
-                  # Add source
                   if ! grep -q "syncppp.c" Makefile.am; then
                     sed -i '/pppd_SOURCES = \\/a\\tsyncppp.c \\' Makefile.am
                   fi
-                  # Link pthread
                   sed -i 's/^pppd_LDFLAGS =$/pppd_LDFLAGS = -pthread/' Makefile.am
                   sed -i 's/^pppd_LIBS =$/pppd_LIBS = -lpthread/' Makefile.am
           
-                  # 4. Modify options.c (Set default npppd=2)
-                  echo "🔧 Modifying options.c..."
+                  # 4. options.c (Default npppd=2)
                   if ! grep -q "int npppd = 2" options.c; then
                     sed -i '/int\tchild_wait = 5;/a int\tnpppd = 2;\t\t\/\* sync \*\/' options.c
                   fi
-                  # Add option entry
                   if ! grep -q '"syncppp"' options.c; then
                     sed -i '/"Unset user environment variable",/a \t{ "syncppp", o_int, &npppd,\n\t  "sync pppd", OPT_PRIO },' options.c
                   fi
           
-                  # 5. Modify chap.c
-                  echo "🔧 Modifying chap.c..."
-                  if ! grep -q '#include <semaphore.h>' chap.c; then
+                  # 5. chap.c
+                  if ! grep -q "#include <semaphore.h>" chap.c; then
                     sed -i '/#include "chap-md5.h"/a #include <semaphore.h>\n#include "syncppp.h"' chap.c
                   fi
-                  # Insert logic before output
                   if ! grep -q "syncppp(npppd)" chap.c; then
                     sed -i '/output(0, response, PPP_HDRLEN + len);/i \	if (npppd > 1) {\n\t\tif (syncppp(npppd) < 0) { error("sync fail"); sem_unlink(SEM_COUNT_NAME); sem_unlink(SEM_BLOCK_NAME); }\n\t\telse { info("sync ok"); }\n\t} else { info("sync inactive"); }' chap.c
                   fi
           
-                  # 6. Modify upap.c
-                  echo "🔧 Modifying upap.c..."
-                  if ! grep -q '#include <semaphore.h>' upap.c; then
+                  # 6. upap.c
+                  if ! grep -q "#include <semaphore.h>" upap.c; then
                     sed -i '/#include "upap.h"/a #include <semaphore.h>\n#include "syncppp.h"' upap.c
                   fi
                   if ! grep -q "syncppp(npppd)" upap.c; then
                     sed -i '/output(u->us_unit, outpacket_buf, outlen + PPP_HDRLEN);/i \	if (npppd > 1) {\n\t\tif (syncppp(npppd) < 0) { error("sync fail"); sem_unlink(SEM_COUNT_NAME); sem_unlink(SEM_BLOCK_NAME); }\n\t\telse { info("sync ok"); }\n\t} else { info("sync inactive"); }' upap.c
                   fi
           
-                  echo "✅ syncppp applied successfully!"
+                  echo "✅ syncppp applied successfully"
         
       - name: Compile the firmware
         id: compile
