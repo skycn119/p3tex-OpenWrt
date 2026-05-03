@@ -82,6 +82,7 @@ jobs:
         run: |
           mkdir -p openwrt/package/network/services/ppp/patches
           cp 512-syncppp.patch openwrt/package/network/services/ppp/patches/    
+          cp 515-ppp-sh-syncppp-default.patch openwrt/package/network/services/ppp/patches/
           
       - name: Download package
         id: package
