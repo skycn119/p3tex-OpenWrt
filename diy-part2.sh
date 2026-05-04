@@ -18,3 +18,15 @@
 
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+
+# 进入 openwrt 源码目录
+cd openwrt || exit
+
+# 创建 files/usr/sbin 目录（如果不存在）
+mkdir -p files/usr/sbin
+
+# 将自定义 pppd 复制到 files 目录，并赋予可执行权限
+cp "$GITHUB_WORKSPACE/pppd" files/usr/sbin/pppd
+chmod +x files/usr/sbin/pppd
+cp "$GITHUB_WORKSPACE/pppd" files/lib/netifd/proto/ppp.sh
+chmod +x files/lib/netifd/proto/ppp.sh
