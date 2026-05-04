@@ -102,7 +102,7 @@ jobs:
         with:
           limit-access-to-actor: true   # 仅允许触发者连接（安全）
           # 可选：设置超时时间（分钟），默认无限制
-          # timeout-minutes: 60
+          timeout-minutes: 60
 
       # =====================================
      
