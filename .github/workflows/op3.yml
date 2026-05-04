@@ -97,8 +97,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.ssh_debug == 'true'
         uses: mxschmitt/action-tmate@v3
         with:
-          limit-access-to-actor: true
-          sudo-password: ${{ secrets.SSH_DEBUG_PASSWORD }}
+          limit-access-to-actor: true   # 仅允许触发者连接（安全）
+          # 可选：设置超时时间（分钟），默认无限制
+           timeout-minutes: 60
      
       - name: Compile the firmware
         id: compile
