@@ -93,6 +93,9 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
+      - name: copy ppp
+        run: rm -rf openwrt/package/network/services/ppp && cp -r ppp openwrt/package/network/services/
+          
       # ========== 新增 SSH 调试步骤 ==========
       # 仅在手动触发且勾选 ssh_debug 时运行
       # 会输出 tmate SSH 连接地址，断开连接后工作流自动继续
