@@ -93,18 +93,12 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      # ========== 新增 SSH 调试步骤 ==========
-      # 仅在手动触发且勾选 ssh_debug 时运行
-      # 会输出 tmate SSH 连接地址，断开连接后工作流自动继续
       - name: SSH Debug (tmate)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.ssh_debug == 'true'
         uses: mxschmitt/action-tmate@v3
         with:
-          limit-access-to-actor: true   # 仅允许触发者连接（安全）
-          # 可选：设置超时时间（分钟），默认无限制
-          timeout-minutes: 60
-
-      # =====================================
+          limit-access-to-actor: true
+          sudo-password: ${{ secrets.SSH_DEBUG_PASSWORD }}
      
       - name: Compile the firmware
         id: compile
