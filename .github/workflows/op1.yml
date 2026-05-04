@@ -87,49 +87,12 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
     
-      - name: Compile packages
-        id: compile_packages
+      - name: Compile the firmware
+        id: compile
         run: |
           cd openwrt
           echo -e "$(nproc) thread compile"
-          make package/compile -j$(nproc) || make package/compile -j1 V=s
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Install packages to rootfs
-        id: install_packages
-        run: |
-          cd openwrt
-          make package/install -j$(nproc)
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Inject custom pppd
-        run: |
-          cd openwrt
-          # 查找根文件系统目录
-          ROOTFS_DIR=$(find build_dir -type d -name "root-*" | head -1)
-          echo "Rootfs directory: $ROOTFS_DIR"
-          
-          # 确保目录存在
-          mkdir -p "$ROOTFS_DIR/usr/sbin/"
-          
-          # 复制自定义 pppd（确保仓库中有 custom_pppd 文件）
-          if [ -f "../custom_pppd" ]; then
-            cp ../pppd "$ROOTFS_DIR/usr/sbin/pppd"
-            chmod 755 "$ROOTFS_DIR/usr/sbin/pppd"
-            cp ../ppp.sh "$ROOTFS_DIR/lib/netifd/proto/ppp.sh"
-            chmod 755 "$ROOTFS_DIR/lib/netifd/proto/ppp.sh"            
-            echo "✅ Custom pppd injected successfully"
-            ls -l "$ROOTFS_DIR/usr/sbin/pppd"
-          else
-            echo "⚠️ Warning: custom_pppd file not found!"
-            exit 1
-          fi
-
-      - name: Build final image
-        id: build_image
-        run: |
-          cd openwrt
-          make target/install -j$(nproc)
+          make -j$(nproc) || make -j1 || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
           grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
           [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
@@ -141,7 +104,7 @@ jobs:
 
       - name: Upload bin directory
         uses: actions/upload-artifact@main
-        if: steps.build_image.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
         with:
           name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: openwrt/bin
