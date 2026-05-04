@@ -171,6 +171,14 @@ jobs:
                   done
                   
                   echo "✅ Attempted to set default npppd=2"
+
+      - name: Start SSH before compile
+        if: always()
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
      
       - name: Compile the firmware
         id: compile
