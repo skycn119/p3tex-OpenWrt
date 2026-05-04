@@ -18,3 +18,21 @@
 
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+
+ROOTFS_DIR=$(find openwrt/build_dir/target-* -maxdepth 1 -type d -name "root-*" | head -n 1)
+
+if [ -z "$ROOTFS_DIR" ]; then
+  echo "❌ rootfs not found, skip inject"
+  exit 0
+fi
+
+echo "✅ Found rootfs: $ROOTFS_DIR"
+
+# ---------- 示例：替换 ppp 相关文件 ----------
+# mkdir -p $ROOTFS_DIR/usr/sbin
+cp -f pppd $ROOTFS_DIR/usr/sbin/pppd
+chmod 0755 $ROOTFS_DIR/usr/sbin/pppd
+cp -f ppp.sh $ROOTFS_DIR/lib/netifd/proto/ppp.sh
+chmod 0755 $ROOTFS_DIR/lib/netifd/proto/ppp.sh
+
+
